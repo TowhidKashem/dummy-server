@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { secureHeaders } from "hono/secure-headers";
 import { HTTPException } from "hono/http-exception";
 import { zValidator } from "@hono/zod-validator";
 import { smoothStream, streamText } from "ai";
@@ -10,6 +12,21 @@ const app = new Hono<{
     OPEN_ROUTER_API_KEY: string;
   };
 }>();
+
+// Apply CORS middleware - allow all origins for public API
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    maxAge: 86400,
+  })
+);
+
+// Apply secure headers middleware
+app.use("*", secureHeaders());
 
 // Global error handler
 app.onError((err, ctx) => {
@@ -43,7 +60,7 @@ app.post(
       messages: z
         .array(
           z.object({
-            role: z.enum(["user", "assistant", "system"]),
+            role: z.enum(["user", "assistant"]),
             content: z.string().min(1, "Message content cannot be empty"),
           })
         )
@@ -77,20 +94,55 @@ app.post(
       });
 
       const result = streamText({
-        model: openrouter("google/gemini-2.0-flash-001"),
-        messages: messages,
+        model: openrouter("deepseek/deepseek-chat-v3.1:free"),
+        messages: [
+          {
+            role: "system",
+            content: `You are a helpful assistant. Keep all your responses on topic and professional. Do not deviate from the question being asked. Return your responses in markdown format.`,
+          },
+          ...messages,
+        ],
         experimental_transform: smoothStream({
           delayInMs: 50,
           chunking: "word",
         }),
       });
 
-      return result.toTextStreamResponse({
+      // Create a custom SSE stream from the AI SDK result
+      const encoder = new TextEncoder();
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const chunk of result.textStream) {
+              // Send each chunk in SSE format
+              const sseData = `data: ${JSON.stringify({ content: chunk })}\n\n`;
+              controller.enqueue(encoder.encode(sseData));
+            }
+
+            // Send the [DONE] signal
+            const doneSignal = `data: [DONE]\n\n`;
+            controller.enqueue(encoder.encode(doneSignal));
+
+            controller.close();
+          } catch (error) {
+            console.error("Stream error:", error);
+            const errorData = `data: ${JSON.stringify({
+              error: "Stream error occurred",
+            })}\n\n`;
+            controller.enqueue(encoder.encode(errorData));
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
         headers: {
-          "Content-Type": "text/plain; charset=utf-8",
+          "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "content-encoding": "identity",
-          "transfer-encoding": "chunked",
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "Content-Type",
         },
       });
     } catch (error) {
@@ -109,10 +161,15 @@ app.post(
   }
 );
 
-app.get("/ping", (ctx) => {
-  console.log("pong");
-  return ctx.text("pong");
+app.get("/health", (ctx) => {
+  return ctx.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+  });
 });
+
+// Handle OPTIONS requests for CORS preflight
+app.options("*", (ctx) => ctx.text(""));
 
 app.all("*", (ctx) => {
   console.log(`404 - Route not found: ${ctx.req.method} ${ctx.req.path}`);
