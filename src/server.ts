@@ -7,6 +7,11 @@ import { zValidator } from "@hono/zod-validator";
 import { smoothStream, streamText } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
+type Message = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 const app = new Hono<{
   Bindings: {
     OPEN_ROUTER_API_KEY: string;
@@ -64,7 +69,11 @@ app.post(
             content: z.string().min(1, "Message content cannot be empty"),
           })
         )
-        .min(1, "Messages array cannot be empty"),
+        .min(1, "Messages array cannot be empty")
+        .refine(validateMessagePattern, {
+          message:
+            "Messages must alternate between user and assistant roles, and the last message must be from the user.",
+        }),
     }),
     (result, c) => {
       if (!result.success) {
@@ -179,3 +188,33 @@ app.all("*", (ctx) => {
 });
 
 export default app;
+
+function validateMessagePattern(messages: Message[]): boolean {
+  // Check if the last message is from the user
+  const lastMessage = messages.at(-1);
+  if (lastMessage?.role !== "user") {
+    return false;
+  }
+
+  // Check if messages alternate between user and assistant
+  for (let i = 1; i < messages.length; i++) {
+    if (messages[i].role === messages[i - 1].role) {
+      return false;
+    }
+  }
+
+  // Verify the pattern is correct based on message count
+  // Odd number of messages: should start with "user"
+  // Even number of messages: should start with "assistant"
+  const isOddCount = messages.length % 2 === 1;
+  const firstMessage = messages[0];
+
+  if (isOddCount && firstMessage.role !== "user") {
+    return false;
+  }
+  if (!isOddCount && firstMessage.role !== "assistant") {
+    return false;
+  }
+
+  return true;
+}
