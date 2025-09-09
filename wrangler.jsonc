@@ -1,0 +1,11 @@
+{
+  "name": "dummy-server",
+  "main": "src/server.ts",
+  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_date": "2025-01-09",
+  "send_metrics": false,
+  "minify": true,
+  "tsconfig": "./tsconfig.json",
+  "workers_dev": false,
+  "preview_urls": false
+}

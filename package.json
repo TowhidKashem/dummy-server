@@ -1,0 +1,23 @@
+{
+  "name": "dummy-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 9000 --remote --ip 127.0.0.1",
+    "deploy": "wrangler deploy --outdir build --minify",
+    "deploy:inspect": "rm -rf build && wrangler deploy --outdir build --minify --dry-run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.7.2",
+    "@openrouter/ai-sdk-provider": "^1.2.0",
+    "ai": "^5.0.39",
+    "hono": "^4.9.6",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250909.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.35.0"
+  }
+}
